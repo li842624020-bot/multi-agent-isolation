@@ -1,0 +1,109 @@
+/* Multi-Agent Isolation Plugin Styles */
+
+.mai-settings-container {
+    margin-bottom: 10px;
+}
+
+.mai-section {
+    margin: 10px 0;
+}
+
+.mai-section h4 {
+    margin: 8px 0 4px 0;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.mai-hint {
+    display: block;
+    color: var(--SmartThemeQuoteColor, #888);
+    font-size: 11px;
+    margin: 4px 0 8px 0;
+    line-height: 1.4;
+}
+
+/* 角色标签列表 */
+.mai-character-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 8px 0;
+    min-height: 32px;
+    padding: 8px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1));
+    border-radius: 8px;
+    background: var(--SmartThemeBlurTintColor, rgba(0,0,0,0.1));
+}
+
+.mai-character-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: var(--SmartThemeBodyColor, rgba(255,255,255,0.1));
+    color: var(--SmartThemeBodyColor, #eee);
+    font-size: 12px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2));
+}
+
+.mai-character-name {
+    font-weight: 500;
+}
+
+.mai-character-remove {
+    cursor: pointer;
+    opacity: 0.6;
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+    transition: opacity 0.2s;
+}
+
+.mai-character-remove:hover {
+    opacity: 1;
+    color: #ff6b6b;
+}
+
+.mai-empty-state {
+    color: var(--SmartThemeQuoteColor, #888);
+    font-size: 12px;
+    font-style: italic;
+    padding: 4px;
+}
+
+/* 添加角色输入 */
+.mai-add-character {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-top: 6px;
+}
+
+.mai-add-character input {
+    flex: 1;
+}
+
+/* 调试面板 */
+.mai-debug-panel {
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 8px;
+    padding: 8px;
+    border-radius: 6px;
+    background: rgba(0, 0, 0, 0.3);
+    font-family: monospace;
+    font-size: 11px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1));
+}
+
+.mai-debug-line {
+    padding: 2px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    color: var(--SmartThemeQuoteColor, #aaa);
+    word-break: break-all;
+}
+
+.mai-debug-line:first-child {
+    color: #7fff7f;
+}

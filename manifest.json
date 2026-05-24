@@ -1,0 +1,12 @@
+{
+    "display_name": "Multi-Agent Isolation",
+    "loading_order": 10,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Multi-Agent-Dev",
+    "version": "0.2.0",
+    "homePage": "",
+    "auto_update": false
+}
