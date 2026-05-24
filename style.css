@@ -372,6 +372,78 @@
     margin-bottom: 8px;
 }
 
+/* === 角色信息面板 === */
+.mai-character-profiles {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.mai-profile-card {
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1));
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+}
+
+.mai-profile-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.05));
+}
+
+.mai-profile-header strong {
+    font-size: 13px;
+}
+
+.mai-profile-time {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--SmartThemeQuoteColor, #666);
+}
+
+.mai-profile-body {
+    padding: 10px 12px;
+}
+
+.mai-profile-row {
+    font-size: 12px;
+    color: var(--SmartThemeBodyColor, #ccc);
+    margin-bottom: 6px;
+    line-height: 1.5;
+}
+
+.mai-profile-row:last-child {
+    margin-bottom: 0;
+}
+
+.mai-profile-row b {
+    color: var(--SmartThemeQuoteColor, #aaa);
+}
+
+.mai-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+}
+
+.mai-badge-online {
+    background: rgba(127, 255, 127, 0.15);
+    color: #7fff7f;
+    border: 1px solid rgba(127, 255, 127, 0.3);
+}
+
+.mai-badge-offline {
+    background: rgba(255, 255, 255, 0.05);
+    color: #888;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 /* === 主界面入口按钮 === */
 #mai_launch_btn {
     cursor: pointer;

@@ -20,6 +20,7 @@ const defaultSettings = {
     autoGenerateNPC: true,
     presentCharacters: [],
     allKnownCharacters: [],
+    characterProfiles: {},
     agentModel: '',
     agentApiUrl: '',
     agentApiKey: '',
@@ -135,7 +136,12 @@ function createModalHTML() {
 
                 <!-- 角色 Tab -->
                 <div class="mai-tab-content" data-tab="characters">
-                    <div class="mai-section-title">当前在场角色</div>
+                    <div class="mai-section-title">在场角色管理</div>
+                    <div class="mai-api-test-row" style="margin-bottom:12px;">
+                        <button class="mai-btn mai-btn-primary" id="mai_analyze_btn">分析当前对话</button>
+                        <span id="mai_analyze_status"></span>
+                    </div>
+                    <div class="mai-form-hint" style="margin-bottom:12px;">点击"分析当前对话"自动识别角色及其已知信息。也可手动添加角色。</div>
                     <div id="mai_m_characters" class="mai-character-list">
                         <div class="mai-empty-state">暂无在场角色</div>
                     </div>
@@ -143,7 +149,11 @@ function createModalHTML() {
                         <input id="mai_m_add_input" type="text" placeholder="输入角色名..." />
                         <button class="mai-btn" id="mai_m_add_btn">添加</button>
                     </div>
-                    <div class="mai-form-hint" style="margin-top:12px;">手动添加的角色会参与信息隔离。开启自动识别后，角色也会根据对话内容自动进出场。</div>
+
+                    <div class="mai-section-title" style="margin-top:20px;">角色信息总览</div>
+                    <div id="mai_character_profiles" class="mai-character-profiles">
+                        <div class="mai-empty-state">分析对话后将显示每个角色的已知信息摘要</div>
+                    </div>
                 </div>
 
                 <!-- 提示词 Tab -->
@@ -197,6 +207,7 @@ function syncModalFromSettings() {
 
     renderModalCharacters();
     renderModalPrompts();
+    renderCharacterProfiles();
     renderLogs();
 }
 
@@ -282,6 +293,9 @@ function bindModalEvents() {
 
     // API 测试
     document.getElementById('mai_test_api')?.addEventListener('click', testApiConnection);
+
+    // 对话分析
+    document.getElementById('mai_analyze_btn')?.addEventListener('click', analyzeCurrentChat);
 
     // 角色管理
     document.getElementById('mai_m_add_btn')?.addEventListener('click', addCharacterFromModal);
@@ -391,6 +405,153 @@ async function testApiConnection() {
         statusEl.textContent = `失败: ${err.message.slice(0, 50)}`;
         addLog(`API 测试失败: ${err.message}`, 'error');
     }
+}
+
+// === 对话分析 ===
+
+async function analyzeCurrentChat() {
+    const statusEl = document.getElementById('mai_analyze_status');
+    if (statusEl) {
+        statusEl.className = 'mai-api-status testing';
+        statusEl.textContent = '分析中...';
+    }
+
+    addLog('开始分析当前对话...', 'info');
+
+    try {
+        const context = getContext();
+        const chat = context.chat || [];
+
+        if (chat.length === 0) {
+            if (statusEl) {
+                statusEl.className = 'mai-api-status error';
+                statusEl.textContent = '当前无对话内容';
+            }
+            addLog('分析失败：当前无对话内容', 'warn');
+            return;
+        }
+
+        // 提取最近的对话内容用于分析
+        const recentMessages = chat.slice(-30).map(msg => {
+            const role = msg.is_user ? '用户' : 'AI';
+            return `[${role}]: ${(msg.mes || '').slice(0, 300)}`;
+        }).join('\n');
+
+        // 获取角色卡信息
+        let charCardInfo = '';
+        if (context.characterId !== undefined && context.characters) {
+            const char = context.characters[context.characterId];
+            if (char) {
+                charCardInfo = `当前角色卡: ${char.name}\n设定: ${(char.description || '').slice(0, 500)}`;
+            }
+        }
+
+        const api = new APICaller(getSettings());
+        const analysisPrompt = `分析以下对话内容，识别所有出现的角色（不包括用户本人）。
+
+${charCardInfo}
+
+最近对话:
+${recentMessages}
+
+请输出JSON格式：
+{
+  "characters": [
+    {
+      "name": "角色名",
+      "present": true/false,
+      "known_info": "该角色目前已知的信息摘要（其他角色不知道的秘密要标注）",
+      "relationship": "与其他角色的关系",
+      "last_action": "最近的行为/状态"
+    }
+  ]
+}
+
+规则：
+- 只识别对话中实际出现或被提及的角色
+- present=true 表示当前在场，false 表示已离场或只是被提及
+- known_info 要区分"公开信息"和"私密信息"
+- 只输出JSON`;
+
+        const result = await api.callJSON([
+            { role: 'system', content: '你是一个对话分析助手，负责从RP对话中提取角色信息。' },
+            { role: 'user', content: analysisPrompt },
+        ], { temperature: 0.3, max_tokens: 1024 });
+
+        // 更新设置
+        const settings = getSettings();
+        if (result.characters && Array.isArray(result.characters)) {
+            settings.presentCharacters = [];
+            settings.characterProfiles = settings.characterProfiles || {};
+
+            for (const char of result.characters) {
+                if (char.present) {
+                    if (!settings.presentCharacters.includes(char.name)) {
+                        settings.presentCharacters.push(char.name);
+                    }
+                }
+                if (!settings.allKnownCharacters.includes(char.name)) {
+                    settings.allKnownCharacters.push(char.name);
+                }
+                settings.characterProfiles[char.name] = {
+                    known_info: char.known_info || '',
+                    relationship: char.relationship || '',
+                    last_action: char.last_action || '',
+                    present: char.present,
+                    updated_at: new Date().toLocaleString(),
+                };
+            }
+
+            saveSettings();
+            renderModalCharacters();
+            renderCharacterProfiles();
+
+            if (statusEl) {
+                statusEl.className = 'mai-api-status success';
+                statusEl.textContent = `识别到 ${result.characters.length} 个角色`;
+            }
+            addLog(`分析完成: 识别到 ${result.characters.length} 个角色`, 'success');
+        }
+    } catch (err) {
+        if (statusEl) {
+            statusEl.className = 'mai-api-status error';
+            statusEl.textContent = `分析失败: ${err.message.slice(0, 40)}`;
+        }
+        addLog(`对话分析失败: ${err.message}`, 'error');
+    }
+}
+
+function renderCharacterProfiles() {
+    const container = document.getElementById('mai_character_profiles');
+    if (!container) return;
+
+    const settings = getSettings();
+    const profiles = settings.characterProfiles || {};
+    const names = Object.keys(profiles);
+
+    if (names.length === 0) {
+        container.innerHTML = '<div class="mai-empty-state">分析对话后将显示每个角色的已知信息摘要</div>';
+        return;
+    }
+
+    container.innerHTML = names.map(name => {
+        const p = profiles[name];
+        const statusBadge = p.present
+            ? '<span class="mai-badge mai-badge-online">在场</span>'
+            : '<span class="mai-badge mai-badge-offline">离场</span>';
+        return `
+        <div class="mai-profile-card">
+            <div class="mai-profile-header">
+                <strong>${name}</strong> ${statusBadge}
+                <small class="mai-profile-time">${p.updated_at || ''}</small>
+            </div>
+            <div class="mai-profile-body">
+                <div class="mai-profile-row"><b>已知信息:</b> ${p.known_info || '无'}</div>
+                <div class="mai-profile-row"><b>关系:</b> ${p.relationship || '无'}</div>
+                <div class="mai-profile-row"><b>最近状态:</b> ${p.last_action || '无'}</div>
+            </div>
+        </div>`;
+    }).join('');
 }
 
 // === 核心流程：生成前拦截 ===
@@ -549,6 +710,12 @@ function updatePresence(dispatchResult, settings) {
 function getCharacterInfo(name) {
     try {
         const context = getContext();
+        // 优先使用 characterProfiles 中的摘要
+        const settings = getSettings();
+        if (settings.characterProfiles?.[name]) {
+            const profile = settings.characterProfiles[name];
+            return `角色名：${name}\n已知信息：${profile.known_info || '无'}\n关系：${profile.relationship || '无'}`;
+        }
         if (context.groups && context.groupId) {
             const char = context.characters?.find(c => c.name === name);
             if (char) return char.description || char.personality || `角色名：${name}`;
@@ -563,56 +730,24 @@ function getCharacterInfo(name) {
     return `角色名：${name}`;
 }
 
-function updateLaunchBtnState() {
-    const btn = document.getElementById('mai_launch_btn');
-    if (btn) {
-        btn.classList.toggle('mai-active', getSettings().enabled);
-    }
-}
-
 // === 初始化 ===
 
 jQuery(async () => {
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
     $('#extensions_settings2').append(settingsHtml);
 
-    // 添加主界面入口图标（放在发送按钮区域旁边）
-    const launchBtn = $(`
-        <div id="mai_launch_btn" class="fa-solid fa-users-gear interactable" title="Multi-Agent 信息隔离"></div>
-    `);
-
-    // 优先放在发送栏左侧按钮区
-    const targetSelectors = [
-        '#leftSendForm',
-        '#send_but_sheld',
-        '#form_sheld .range-block',
-    ];
-    let placed = false;
-    for (const sel of targetSelectors) {
-        const target = $(sel);
-        if (target.length) {
-            target.prepend(launchBtn);
-            placed = true;
-            break;
-        }
-    }
-    if (!placed) {
-        $('body').append(launchBtn);
-    }
-
     // 注入 Modal HTML
     $('body').append(createModalHTML());
 
-    // 绑定事件
+    // 绑定扩展面板事件
     $('#mai_enabled').on('change', (e) => {
         const settings = getSettings();
         settings.enabled = Boolean($(e.target).prop('checked'));
         saveSettings();
-        updateLaunchBtnState();
         addLog(`插件${settings.enabled ? '已启用' : '已禁用'}`, 'info');
     });
 
-    $('#mai_launch_btn').on('click', openModal);
+    $('#mai_open_panel_btn').on('click', openModal);
     bindModalEvents();
 
     // 注册核心事件
@@ -629,6 +764,6 @@ jQuery(async () => {
     }
 
     loadSettings();
-    updateLaunchBtnState();
-    console.log('[Multi-Agent Isolation] v0.3.0 loaded');
+    $('#mai_enabled').prop('checked', getSettings().enabled);
+    console.log('[Multi-Agent Isolation] v0.4.0 loaded');
 });

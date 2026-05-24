@@ -1,7 +1,23 @@
-<div class="mai-extension-toggle">
-    <label class="checkbox_label">
-        <input id="mai_enabled" type="checkbox" />
-        <span>启用 Multi-Agent 信息隔离</span>
-    </label>
-    <small class="mai-hint">启用后点击聊天栏上方的 <i class="fa-solid fa-users-gear"></i> 图标管理插件</small>
+<div class="mai-settings-container">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Multi-Agent 信息隔离</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <div class="mai-section">
+                <label class="checkbox_label">
+                    <input id="mai_enabled" type="checkbox" />
+                    <span>启用多Agent模式</span>
+                </label>
+                <small class="mai-hint">启用后，不同角色将由独立AI实例扮演，实现真正的信息隔离</small>
+            </div>
+            <div class="mai-section" style="margin-top:8px;">
+                <div id="mai_open_panel_btn" class="menu_button">
+                    <i class="fa-solid fa-users-gear"></i>
+                    <span>打开管理面板</span>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
