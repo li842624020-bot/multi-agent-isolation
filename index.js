@@ -20,23 +20,79 @@ const defaultSettings = {
     autoGenerateNPC: true,
     autoUpdate: false,
     updateInterval: 1,
-    presentCharacters: [],
-    allKnownCharacters: [],
-    characterProfiles: {},
     agentModel: '',
     agentApiUrl: '',
     agentApiKey: '',
     jailbreakPrompts: [''],
     injectionPosition: 'before_last',
-    messageCountSinceUpdate: 0,
+    sessions: {},
 };
+
+const emptySession = () => ({
+    presentCharacters: [],
+    allKnownCharacters: [],
+    characterProfiles: {},
+    messageCountSinceUpdate: 0,
+    analysisResults: [],
+    logEntries: [],
+});
 
 let dispatcher = null;
 let characterAgent = null;
 let historyManager = new HistoryManager();
 let directiveBuilder = new DirectiveBuilder();
-let logEntries = [];
-let analysisResults = [];
+let currentSessionKey = null;
+let session = emptySession();
+
+// === Session 管理 ===
+
+function getSessionKey() {
+    try {
+        const context = getContext();
+        const charId = context.characterId ?? 'unknown';
+        const chatId = context.chatId ?? 0;
+        return `${charId}_${chatId}`;
+    } catch {
+        return 'default_0';
+    }
+}
+
+function getCurrentSession() {
+    const s = getSettings();
+    if (!s.sessions) s.sessions = {};
+    const key = getSessionKey();
+    if (!s.sessions[key]) {
+        s.sessions[key] = emptySession();
+    }
+    return s.sessions[key];
+}
+
+function switchSession() {
+    const s = getSettings();
+    if (!s.sessions) s.sessions = {};
+
+    // Save current session back
+    if (currentSessionKey && s.sessions[currentSessionKey]) {
+        Object.assign(s.sessions[currentSessionKey], session);
+    }
+
+    // Switch to new key
+    currentSessionKey = getSessionKey();
+    if (!s.sessions[currentSessionKey]) {
+        s.sessions[currentSessionKey] = emptySession();
+    }
+
+    // Load new session into working variables
+    session = s.sessions[currentSessionKey];
+    saveSettings();
+
+    // Refresh UI
+    renderModalCharacters();
+    renderCharacterProfiles();
+    renderLogs();
+    renderAnalysisResults();
+    addLog(`会话切换: ${currentSessionKey}`, 'info');
+}
 
 // === 设置管理 ===
 
@@ -46,16 +102,34 @@ function loadSettings() {
         Object.assign(extension_settings[extensionName], defaultSettings);
     }
     const s = getSettings();
+    // Migration from old format
     if (s.agentJailbreakPrompt && !s.jailbreakPrompts) {
         s.jailbreakPrompts = [s.agentJailbreakPrompt];
         delete s.agentJailbreakPrompt;
     }
     if (!Array.isArray(s.jailbreakPrompts)) s.jailbreakPrompts = [''];
-    if (!s.characterProfiles) s.characterProfiles = {};
+    if (!s.sessions) s.sessions = {};
     if (s.autoUpdate === undefined) s.autoUpdate = false;
     if (s.updateInterval === undefined) s.updateInterval = 1;
-    if (s.messageCountSinceUpdate === undefined) s.messageCountSinceUpdate = 0;
+
+    // Migrate old flat data into a session if needed
+    if (s.presentCharacters && !s.sessions[getSessionKey()]) {
+        s.sessions[getSessionKey()] = {
+            presentCharacters: s.presentCharacters || [],
+            allKnownCharacters: s.allKnownCharacters || [],
+            characterProfiles: s.characterProfiles || {},
+            messageCountSinceUpdate: s.messageCountSinceUpdate || 0,
+            analysisResults: [],
+            logEntries: [],
+        };
+        delete s.presentCharacters;
+        delete s.allKnownCharacters;
+        delete s.characterProfiles;
+        delete s.messageCountSinceUpdate;
+    }
+
     initModules();
+    switchSession();
 }
 
 function getSettings() {
@@ -63,6 +137,11 @@ function getSettings() {
 }
 
 function saveSettings() {
+    // Sync working session back to settings
+    const s = getSettings();
+    if (currentSessionKey) {
+        s.sessions[currentSessionKey] = session;
+    }
     saveSettingsDebounced();
 }
 
@@ -72,12 +151,13 @@ function initModules() {
     characterAgent = new CharacterAgent(settings);
 }
 
+
 // === 日志系统 ===
 
 function addLog(message, level = 'info') {
     const time = new Date().toLocaleTimeString();
-    logEntries.unshift({ time, message, level });
-    if (logEntries.length > 100) logEntries.pop();
+    session.logEntries.unshift({ time, message, level });
+    if (session.logEntries.length > 100) session.logEntries.pop();
     console.log(`[MAI][${level}] ${message}`);
     renderLogs();
 }
@@ -85,11 +165,11 @@ function addLog(message, level = 'info') {
 function renderLogs() {
     const panel = document.getElementById('mai_log_panel');
     if (!panel) return;
-    if (logEntries.length === 0) {
+    if (session.logEntries.length === 0) {
         panel.innerHTML = '<div class="mai-log-empty">暂无日志</div>';
         return;
     }
-    panel.innerHTML = logEntries.map(e =>
+    panel.innerHTML = session.logEntries.map(e =>
         `<div class="mai-log-line ${e.level}">[${e.time}] ${e.message}</div>`
     ).join('');
 }
@@ -98,12 +178,12 @@ function renderLogs() {
 
 function addAnalysisResult(characterName, result) {
     const time = new Date().toLocaleTimeString();
-    const existing = analysisResults.findIndex(r => r.name === characterName);
+    const existing = session.analysisResults.findIndex(r => r.name === characterName);
     const entry = { name: characterName, result, time };
     if (existing >= 0) {
-        analysisResults[existing] = entry;
+        session.analysisResults[existing] = entry;
     } else {
-        analysisResults.push(entry);
+        session.analysisResults.push(entry);
     }
     renderAnalysisResults();
 }
@@ -111,11 +191,11 @@ function addAnalysisResult(characterName, result) {
 function renderAnalysisResults() {
     const container = document.getElementById('mai_analysis_results');
     if (!container) return;
-    if (analysisResults.length === 0) {
+    if (session.analysisResults.length === 0) {
         container.innerHTML = '<div class="mai-empty-state">暂无分析结果</div>';
         return;
     }
-    container.innerHTML = analysisResults.map(r => `
+    container.innerHTML = session.analysisResults.map(r => `
         <div class="mai-analysis-card">
             <div class="mai-analysis-header">
                 <strong>${r.name}</strong>
@@ -129,11 +209,25 @@ function renderAnalysisResults() {
 function formatAnalysisResult(result) {
     if (typeof result === 'string') return result;
     let html = '';
-    if (result.dialogue) html += `<div class="mai-ar-row"><b>对话:</b> "${result.dialogue}"</div>`;
-    if (result.action) html += `<div class="mai-ar-row"><b>动作:</b> ${result.action}</div>`;
-    if (result.expression) html += `<div class="mai-ar-row"><b>表情:</b> ${result.expression}</div>`;
-    if (result.thought) html += `<div class="mai-ar-row"><b>内心:</b> ${result.thought}</div>`;
+    if (result.content) html += `<div class="mai-ar-row"><b>内容:</b> ${result.content.slice(0, 200)}${result.content.length > 200 ? '...' : ''}</div>`;
+    if (result.intent) html += `<div class="mai-ar-row"><b>意图:</b> ${result.intent}</div>`;
+    if (result.dialogue_summary) html += `<div class="mai-ar-row"><b>台词:</b> ${result.dialogue_summary}</div>`;
     return html || '<div class="mai-ar-row">无反应数据</div>';
+}
+
+// === Toast 提示 ===
+
+function showToast(message, duration = 2000) {
+    let toast = document.getElementById('mai_toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'mai_toast';
+        toast.className = 'mai-toast';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add('active');
+    setTimeout(() => toast.classList.remove('active'), duration);
 }
 
 
@@ -145,6 +239,10 @@ function createModalHTML() {
         <div class="mai-modal">
             <div class="mai-modal-header">
                 <span class="mai-modal-title">Multi-Agent 信息隔离</span>
+                <div class="mai-modal-actions">
+                    <button class="mai-btn mai-btn-primary mai-btn-sm" id="mai_save_btn" title="保存设置">💾 保存</button>
+                    <button class="mai-btn mai-btn-danger mai-btn-sm" id="mai_clear_session_btn" title="清空当前会话数据">🗑️ 清空</button>
+                </div>
                 <span class="mai-modal-close" id="mai_modal_close">&times;</span>
             </div>
             <div class="mai-tabs">
@@ -284,8 +382,7 @@ function syncModalFromSettings() {
 function renderModalCharacters() {
     const container = document.getElementById('mai_m_characters');
     if (!container) return;
-    const s = getSettings();
-    const chars = s.presentCharacters || [];
+    const chars = session.presentCharacters || [];
 
     if (chars.length === 0) {
         container.innerHTML = '<div class="mai-empty-state">暂无在场角色，点击"分析当前对话"或手动添加</div>';
@@ -318,8 +415,7 @@ function renderCharacterProfiles() {
     const container = document.getElementById('mai_character_profiles');
     if (!container) return;
 
-    const settings = getSettings();
-    const profiles = settings.characterProfiles || {};
+    const profiles = session.characterProfiles || {};
     const names = Object.keys(profiles);
 
     if (names.length === 0) {
@@ -349,6 +445,7 @@ function renderCharacterProfiles() {
     }).join('');
 }
 
+
 // === Modal 事件绑定 ===
 
 function bindModalEvents() {
@@ -365,6 +462,23 @@ function bindModalEvents() {
     document.getElementById('mai_modal_close')?.addEventListener('click', closeModal);
     document.getElementById('mai_modal_overlay')?.addEventListener('click', (e) => {
         if (e.target.id === 'mai_modal_overlay') closeModal();
+    });
+
+    // Save & Clear buttons
+    document.getElementById('mai_save_btn')?.addEventListener('click', () => {
+        saveSettings();
+        showToast('已保存');
+    });
+    document.getElementById('mai_clear_session_btn')?.addEventListener('click', () => {
+        if (!confirm('确定要清空当前会话的所有角色数据、日志和分析结果吗？\n（API设置和提示词不受影响）')) return;
+        Object.assign(session, emptySession());
+        saveSettings();
+        renderModalCharacters();
+        renderCharacterProfiles();
+        renderLogs();
+        renderAnalysisResults();
+        showToast('当前会话已清空');
+        addLog('会话数据已清空', 'info');
     });
 
     // API 设置
@@ -413,8 +527,7 @@ function bindModalEvents() {
     document.getElementById('mai_m_characters')?.addEventListener('click', (e) => {
         if (e.target.classList.contains('mai-character-remove')) {
             const idx = parseInt(e.target.dataset.index);
-            const s = getSettings();
-            const removed = s.presentCharacters.splice(idx, 1);
+            const removed = session.presentCharacters.splice(idx, 1);
             saveSettings();
             renderModalCharacters();
             addLog(`移除角色: ${removed[0]}`, 'info');
@@ -433,7 +546,7 @@ function bindModalEvents() {
 
     // 清空日志
     document.getElementById('mai_clear_logs')?.addEventListener('click', () => {
-        logEntries = [];
+        session.logEntries = [];
         renderLogs();
     });
 }
@@ -464,10 +577,9 @@ function addCharacterFromModal() {
     const input = document.getElementById('mai_m_add_input');
     const name = input?.value.trim();
     if (!name) return;
-    const s = getSettings();
-    if (!s.presentCharacters.includes(name)) {
-        s.presentCharacters.push(name);
-        if (!s.allKnownCharacters.includes(name)) s.allKnownCharacters.push(name);
+    if (!session.presentCharacters.includes(name)) {
+        session.presentCharacters.push(name);
+        if (!session.allKnownCharacters.includes(name)) session.allKnownCharacters.push(name);
         saveSettings();
         renderModalCharacters();
         addLog(`手动添加角色: ${name}`, 'info');
@@ -498,6 +610,7 @@ async function testApiConnection() {
     }
 }
 
+
 // === 对话分析（全量） ===
 
 async function analyzeCurrentChat() {
@@ -514,6 +627,8 @@ async function analyzeCurrentChat() {
             return;
         }
 
+        const cardName = context.name2 || '';
+
         const recentMessages = chat.slice(-40).map(msg => {
             const role = msg.is_user ? '用户' : 'AI';
             return `[${role}]: ${(msg.mes || '').slice(0, 400)}`;
@@ -529,7 +644,7 @@ async function analyzeCurrentChat() {
         const result = await api.callJSON([
             { role: 'system', content: '你是对话分析助手，从RP对话中提取角色信息。只输出JSON。' },
             { role: 'user', content: `分析以下对话，识别所有角色（不含用户本人）。
-
+${cardName ? `\n注意：「${cardName}」是角色卡标题，不是角色名，请不要将其作为角色输出。\n` : ''}
 ${charCardInfo}
 
 对话内容:
@@ -554,20 +669,19 @@ ${recentMessages}
 - present=true表示当前在场
 - public_info是所有角色都能知道的
 - private_info是只有该角色自己知道的（其他角色不应获知）
-- dialogue_history是该角色参与过的对话的摘要总结` },
+- dialogue_history是该角色参与过的对话的摘要总结
+- 不要把角色卡标题当作角色` },
         ], { temperature: 0.3, max_tokens: 2048 });
 
-        const settings = getSettings();
         if (result.characters && Array.isArray(result.characters)) {
-            settings.presentCharacters = [];
-            settings.characterProfiles = settings.characterProfiles || {};
+            session.presentCharacters = [];
 
             for (const char of result.characters) {
                 if (char.present) {
-                    if (!settings.presentCharacters.includes(char.name)) settings.presentCharacters.push(char.name);
+                    if (!session.presentCharacters.includes(char.name)) session.presentCharacters.push(char.name);
                 }
-                if (!settings.allKnownCharacters.includes(char.name)) settings.allKnownCharacters.push(char.name);
-                settings.characterProfiles[char.name] = {
+                if (!session.allKnownCharacters.includes(char.name)) session.allKnownCharacters.push(char.name);
+                session.characterProfiles[char.name] = {
                     public_info: char.public_info || '',
                     private_info: char.private_info || '',
                     relationship: char.relationship || '',
@@ -577,7 +691,7 @@ ${recentMessages}
                     updated_at: new Date().toLocaleString(),
                 };
             }
-            settings.messageCountSinceUpdate = 0;
+            session.messageCountSinceUpdate = 0;
             saveSettings();
             renderModalCharacters();
             renderCharacterProfiles();
@@ -595,12 +709,11 @@ ${recentMessages}
 async function incrementalUpdate(latestMessage) {
     addLog('增量更新角色信息...', 'info');
     try {
-        const settings = getSettings();
-        const profiles = settings.characterProfiles || {};
+        const profiles = session.characterProfiles || {};
         const names = Object.keys(profiles);
         if (names.length === 0) return;
 
-        const api = new APICaller(settings);
+        const api = new APICaller(getSettings());
         const result = await api.callJSON([
             { role: 'system', content: '你是对话分析助手。根据最新一条AI回复，增量更新各角色信息。只输出JSON。' },
             { role: 'user', content: `当前角色信息：
@@ -627,7 +740,8 @@ ${latestMessage}
 - 只输出有变化的角色
 - append字段是追加内容，不是替换
 - 如果某角色本轮没有新信息，不要输出该角色
-- dialogue_history_append 用简短一句话概括本轮该角色做了什么` },
+- dialogue_history_append 用简短一句话概括本轮该角色做了什么
+- present=false 表示角色已离场` },
         ], { temperature: 0.3, max_tokens: 1024 });
 
         if (result.updates && Array.isArray(result.updates)) {
@@ -644,17 +758,28 @@ ${latestMessage}
                 if (update.dialogue_history_append) {
                     profile.dialogue_history = (profile.dialogue_history || '') + '；' + update.dialogue_history_append;
                 }
-                if (update.present !== undefined) profile.present = update.present;
+                if (update.present !== undefined) {
+                    profile.present = update.present;
+                    // Update presentCharacters list
+                    if (update.present && !session.presentCharacters.includes(update.name)) {
+                        session.presentCharacters.push(update.name);
+                    } else if (!update.present) {
+                        const idx = session.presentCharacters.indexOf(update.name);
+                        if (idx !== -1) session.presentCharacters.splice(idx, 1);
+                    }
+                }
                 profile.updated_at = new Date().toLocaleString();
             }
             saveSettings();
             renderCharacterProfiles();
+            renderModalCharacters();
             addLog(`增量更新完成: 更新了 ${result.updates.length} 个角色`, 'success');
         }
     } catch (err) {
         addLog(`增量更新失败: ${err.message}`, 'error');
     }
 }
+
 
 // === 核心流程：生成前拦截 ===
 
@@ -666,7 +791,7 @@ async function onChatCompletionPromptReady(data) {
     addLog('=== 开始多Agent处理 ===', 'info');
 
     try {
-        autoDetectCharacters(settings);
+        autoDetectCharacters();
 
         const userInput = extractLastUserInput(data.chat);
         if (!userInput) {
@@ -674,18 +799,22 @@ async function onChatCompletionPromptReady(data) {
             return;
         }
         addLog(`用户输入: ${userInput.slice(0, 50)}...`, 'info');
-        addLog(`当前在场角色: [${settings.presentCharacters.join(', ')}]`, 'info');
+        addLog(`当前在场角色: [${session.presentCharacters.join(', ')}]`, 'info');
 
-        if (settings.presentCharacters.length === 0) {
+        if (session.presentCharacters.length === 0) {
             addLog('未检测到角色，跳过（请先分析对话或手动添加角色）', 'warn');
             return;
         }
 
+        const context = getContext();
+        const cardName = context.name2 || '';
+
         addLog('调度器分析中（含信息隔离分辨）...', 'info');
         const dispatchResult = await dispatcher.analyze(
             userInput,
-            settings.presentCharacters,
-            settings.allKnownCharacters,
+            session.presentCharacters,
+            session.allKnownCharacters,
+            cardName,
         );
         addLog(`调度结果: 进入=[${dispatchResult.entered.join(',')}] 离开=[${dispatchResult.exited.join(',')}]`, 'info');
         addLog(`需要反应: [${dispatchResult.characters_to_react.join(', ')}]`, 'info');
@@ -694,7 +823,7 @@ async function onChatCompletionPromptReady(data) {
             addLog(`信息隔离: 检测到私密内容 → ${Object.keys(dispatchResult.filtered_input.private).join(', ')}`, 'info');
         }
 
-        updatePresence(dispatchResult, settings);
+        updatePresence(dispatchResult);
 
         if (dispatchResult.characters_to_react.length === 0) {
             addLog('调度器判断无角色需要反应，跳过', 'warn');
@@ -721,7 +850,6 @@ async function onChatCompletionPromptReady(data) {
         const successCount = reactions.filter(r => r.success).length;
         addLog(`角色Agent完成: ${successCount}/${reactions.length} 成功`, successCount > 0 ? 'success' : 'warn');
 
-        // 记录分析结果
         for (const r of reactions) {
             addAnalysisResult(r.name, r.reaction);
         }
@@ -750,13 +878,12 @@ async function onMessageReceived() {
     const context = getContext();
     if (context.chat && context.chat.length > 0) {
         const lastMsg = context.chat[context.chat.length - 1];
-        historyManager.saveToMessage(lastMsg, settings.presentCharacters);
+        historyManager.saveToMessage(lastMsg, session.presentCharacters);
 
-        // 增量更新逻辑
         if (settings.autoUpdate && !lastMsg.is_user) {
-            settings.messageCountSinceUpdate = (settings.messageCountSinceUpdate || 0) + 1;
-            if (settings.messageCountSinceUpdate >= (settings.updateInterval || 1)) {
-                settings.messageCountSinceUpdate = 0;
+            session.messageCountSinceUpdate = (session.messageCountSinceUpdate || 0) + 1;
+            if (session.messageCountSinceUpdate >= (settings.updateInterval || 1)) {
+                session.messageCountSinceUpdate = 0;
                 saveSettings();
                 await incrementalUpdate(lastMsg.mes || '');
             } else {
@@ -764,35 +891,33 @@ async function onMessageReceived() {
             }
         }
     }
-    addLog(`回复已标记在场角色: [${settings.presentCharacters.join(', ')}]`, 'info');
+    addLog(`回复已标记在场角色: [${session.presentCharacters.join(', ')}]`, 'info');
 }
 
 // === 辅助函数 ===
 
-function autoDetectCharacters(settings) {
+function autoDetectCharacters() {
     try {
         const context = getContext();
+        const cardName = context.name2 || '';
+
         if (context.groupId && context.groups) {
             const group = context.groups.find(g => g.id === context.groupId);
             if (group && group.members) {
                 for (const memberId of group.members) {
                     const char = context.characters?.find(c => c.avatar === memberId || c.name === memberId);
                     const name = char?.name || memberId;
-                    if (name && !settings.presentCharacters.includes(name)) {
-                        settings.presentCharacters.push(name);
+                    if (name && name !== cardName && !session.presentCharacters.includes(name)) {
+                        session.presentCharacters.push(name);
                         addLog(`自动识别群聊角色: ${name}`, 'info');
                     }
-                    if (name && !settings.allKnownCharacters.includes(name)) settings.allKnownCharacters.push(name);
+                    if (name && name !== cardName && !session.allKnownCharacters.includes(name)) {
+                        session.allKnownCharacters.push(name);
+                    }
                 }
             }
-        } else if (context.characterId !== undefined && context.characters) {
-            const char = context.characters[context.characterId];
-            if (char?.name && !settings.presentCharacters.includes(char.name)) {
-                settings.presentCharacters.push(char.name);
-                addLog(`自动识别角色: ${char.name}`, 'info');
-            }
-            if (char?.name && !settings.allKnownCharacters.includes(char.name)) settings.allKnownCharacters.push(char.name);
         }
+        // Do NOT add context.name2 (card name) as a character
     } catch (e) {
         addLog(`自动识别角色失败: ${e.message}`, 'warn');
     }
@@ -805,22 +930,24 @@ function extractLastUserInput(chat) {
     return null;
 }
 
-function updatePresence(dispatchResult, settings) {
+function updatePresence(dispatchResult) {
     for (const name of dispatchResult.entered) {
-        if (!settings.presentCharacters.includes(name)) settings.presentCharacters.push(name);
-        if (!settings.allKnownCharacters.includes(name)) settings.allKnownCharacters.push(name);
+        if (!session.presentCharacters.includes(name)) session.presentCharacters.push(name);
+        if (!session.allKnownCharacters.includes(name)) session.allKnownCharacters.push(name);
+        // Update profile presence
+        if (session.characterProfiles[name]) session.characterProfiles[name].present = true;
     }
     for (const name of dispatchResult.exited) {
-        const idx = settings.presentCharacters.indexOf(name);
-        if (idx !== -1) settings.presentCharacters.splice(idx, 1);
+        const idx = session.presentCharacters.indexOf(name);
+        if (idx !== -1) session.presentCharacters.splice(idx, 1);
+        if (session.characterProfiles[name]) session.characterProfiles[name].present = false;
     }
     saveSettings();
     renderModalCharacters();
 }
 
 function getCharacterInfo(name) {
-    const settings = getSettings();
-    const profile = settings.characterProfiles?.[name];
+    const profile = session.characterProfiles?.[name];
     if (profile) {
         let info = `角色名：${name}`;
         if (profile.public_info) info += `\n公开信息：${profile.public_info}`;
@@ -849,7 +976,6 @@ jQuery(async () => {
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
     $('#extensions_settings2').append(settingsHtml);
 
-    // 浮动图标入口
     const launchBtn = $(`
         <div id="mai_launch_btn" class="fa-solid fa-users-gear interactable" title="Multi-Agent 信息隔离"></div>
     `);
@@ -861,10 +987,8 @@ jQuery(async () => {
     }
     if (!placed) $('body').append(launchBtn);
 
-    // 注入 Modal
     $('body').append(createModalHTML());
 
-    // 扩展面板事件
     $('#mai_enabled').on('change', (e) => {
         const settings = getSettings();
         settings.enabled = Boolean($(e.target).prop('checked'));
@@ -877,7 +1001,7 @@ jQuery(async () => {
     $('#mai_launch_btn').on('click', openModal);
     bindModalEvents();
 
-    // 注册核心事件
+    // 核心事件
     if ('CHAT_COMPLETION_PROMPT_READY' in event_types) {
         eventSource.on(event_types.CHAT_COMPLETION_PROMPT_READY, onChatCompletionPromptReady);
         console.log('[Multi-Agent Isolation] CHAT_COMPLETION_PROMPT_READY registered');
@@ -890,8 +1014,17 @@ jQuery(async () => {
         eventSource.on(event_types.MESSAGE_RECEIVED, onMessageReceived);
     }
 
+    // 监听聊天切换事件，自动切换 session
+    if ('CHAT_CHANGED' in event_types) {
+        eventSource.on(event_types.CHAT_CHANGED, () => {
+            switchSession();
+            addLog('检测到聊天切换，已加载对应会话数据', 'info');
+        });
+        console.log('[Multi-Agent Isolation] CHAT_CHANGED registered');
+    }
+
     loadSettings();
     $('#mai_enabled').prop('checked', getSettings().enabled);
     document.getElementById('mai_launch_btn')?.classList.toggle('mai-active', getSettings().enabled);
-    console.log('[Multi-Agent Isolation] v0.5.0 loaded');
+    console.log('[Multi-Agent Isolation] v0.6.0 loaded');
 });

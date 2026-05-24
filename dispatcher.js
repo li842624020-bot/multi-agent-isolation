@@ -52,12 +52,12 @@ export class Dispatcher {
         this.api = new APICaller(settings);
     }
 
-    async analyze(userInput, presentCharacters, knownCharacters) {
+    async analyze(userInput, presentCharacters, knownCharacters, cardName = '') {
         const messages = [
             { role: 'system', content: DISPATCHER_SYSTEM_PROMPT },
             {
                 role: 'user',
-                content: this._buildUserPrompt(userInput, presentCharacters, knownCharacters),
+                content: this._buildUserPrompt(userInput, presentCharacters, knownCharacters, cardName),
             },
         ];
 
@@ -73,14 +73,19 @@ export class Dispatcher {
         }
     }
 
-    _buildUserPrompt(userInput, presentCharacters, knownCharacters) {
-        return `当前在场角色：${presentCharacters.length > 0 ? presentCharacters.join('、') : '（无）'}
+    _buildUserPrompt(userInput, presentCharacters, knownCharacters, cardName = '') {
+        let prompt = '';
+        if (cardName) {
+            prompt += `注意：「${cardName}」是角色卡标题，不是角色名，请在分析时忽略它，不要将其视为一个角色。\n\n`;
+        }
+        prompt += `当前在场角色：${presentCharacters.length > 0 ? presentCharacters.join('、') : '（无）'}
 已知所有角色：${knownCharacters.length > 0 ? knownCharacters.join('、') : '（无）'}
 
 用户最新输入：
 ${userInput}
 
 请分析这段输入，输出JSON。注意识别是否有私密对话（耳语、私下动作等）。`;
+        return prompt;
     }
 
     _validateResult(result, presentCharacters, userInput) {

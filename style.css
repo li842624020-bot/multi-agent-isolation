@@ -62,6 +62,19 @@
     color: var(--SmartThemeBodyColor, #eee);
 }
 
+.mai-modal-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-left: auto;
+    margin-right: 12px;
+}
+
+.mai-btn-sm {
+    padding: 5px 10px;
+    font-size: 11px;
+}
+
 .mai-modal-close {
     cursor: pointer;
     font-size: 20px;
@@ -74,6 +87,30 @@
 .mai-modal-close:hover {
     opacity: 1;
     background: rgba(255,255,255,0.1);
+}
+
+/* === Toast 提示 === */
+.mai-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(40, 40, 60, 0.95);
+    color: #7fff7f;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    border: 1px solid rgba(127, 255, 127, 0.3);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s, transform 0.3s;
+    z-index: 10000;
+}
+
+.mai-toast.active {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
 }
 
 /* === Tab 导航 === */

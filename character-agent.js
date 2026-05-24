@@ -1,4 +1,4 @@
-// 角色 Agent - 每个角色由独立 AI 实例扮演，生成结构化反应
+// 角色 Agent - 每个角色由独立 AI 实例扮演，生成完整反应段落
 
 import { APICaller } from './api-caller.js';
 
@@ -10,19 +10,21 @@ const CHARACTER_SYSTEM_TEMPLATE = `{jailbreak}
 {characterInfo}
 
 【输出要求】
-根据当前情境，生成该角色的反应。使用以下JSON格式输出：
+根据当前情境，生成该角色的完整反应。使用以下JSON格式输出：
 {{
-  "dialogue": "角色说的话（没有则为null）",
-  "action": "角色的动作描述",
-  "expression": "角色的表情/神态",
-  "thought": "角色的内心想法（可选，null表示不展示）"
+  "content": "角色的完整反应段落。要求：自然混合对话、动作、神态描写，形成连贯的叙事段落，不少于3句话。对话用引号标注，动作和神态直接描写。",
+  "intent": "一句话概括角色此刻的核心意图或情绪状态",
+  "dialogue_summary": "角色说的关键台词摘要（没说话则为null）"
 }}
 
 规则：
 - 只输出这一个角色的反应，不要写其他角色
 - 保持角色性格一致
-- 如果角色在当前情境下不会主动说话或行动，action可以写"沉默"或简单的观察动作
-- dialogue 是角色说出口的话，thought 是内心独白（不说出口）
+- content 必须是完整的叙事段落（3-8句），包含动作、神态、对话的自然混合
+- 对话要符合角色说话风格，可以有多句对话
+- 如果角色在当前情境下不会主动说话，也要描写其动作和神态反应
+- intent 是对角色当前状态的一句话总结，供主AI参考
+- dialogue_summary 只记录关键台词，用于历史追踪
 - 不要输出JSON以外的内容`;
 
 export class CharacterAgent {
@@ -31,15 +33,6 @@ export class CharacterAgent {
         this.api = new APICaller(settings);
     }
 
-    /**
-     * 为单个角色生成反应
-     * @param {string} name - 角色名
-     * @param {string} characterInfo - 角色设定文本
-     * @param {Array} visibleHistory - 该角色可见的历史消息
-     * @param {string} currentInput - 用户最新输入
-     * @param {string} sceneContext - 调度器提供的场景描述
-     * @returns {Object} 结构化反应
-     */
     async generateReaction(name, characterInfo, visibleHistory, currentInput, sceneContext) {
         const systemPrompt = this._buildSystemPrompt(name, characterInfo);
         const messages = [
@@ -51,7 +44,7 @@ export class CharacterAgent {
         try {
             const result = await this.api.callJSON(messages, {
                 temperature: 0.8,
-                max_tokens: 256,
+                max_tokens: 768,
             });
             return this._validateReaction(name, result);
         } catch (error) {
@@ -60,13 +53,6 @@ export class CharacterAgent {
         }
     }
 
-    /**
-     * 并行调用多个角色 Agent
-     * @param {Array} characterRequests - [{ name, characterInfo, visibleHistory }]
-     * @param {string} currentInput
-     * @param {string} sceneContext
-     * @returns {Array} [{ name, reaction, success }]
-     */
     async generateReactionsParallel(characterRequests, currentInput, sceneContext) {
         const promises = characterRequests.map(async (req) => {
             try {
@@ -113,27 +99,25 @@ export class CharacterAgent {
         if (sceneContext) {
             prompt += `【当前场景】${sceneContext}\n\n`;
         }
-        prompt += `【最新输入】\n${currentInput}\n\n请生成你的角色反应（JSON格式）。`;
+        prompt += `【最新输入】\n${currentInput}\n\n请生成你的角色反应（JSON格式），要求内容完整丰富，不少于3句话。`;
         return prompt;
     }
 
     _validateReaction(name, result) {
         return {
             name,
-            dialogue: result.dialogue || null,
-            action: result.action || '沉默',
-            expression: result.expression || '',
-            thought: result.thought || null,
+            content: result.content || '静静地站在一旁，目光平静地注视着眼前发生的一切。',
+            intent: result.intent || '观察',
+            dialogue_summary: result.dialogue_summary || null,
         };
     }
 
     _fallbackReaction(name) {
         return {
             name,
-            dialogue: null,
-            action: '静静地观察着',
-            expression: '',
-            thought: null,
+            content: '静静地观察着周围的情况，神色平静，没有做出特别的反应。',
+            intent: '沉默观察',
+            dialogue_summary: null,
         };
     }
 }
