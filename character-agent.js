@@ -87,7 +87,8 @@ export class CharacterAgent {
     }
 
     _buildSystemPrompt(name, characterInfo) {
-        const jailbreak = this.settings.agentJailbreakPrompt || '';
+        const prompts = this.settings.jailbreakPrompts || [];
+        const jailbreak = prompts.filter(p => p.trim()).join('\n\n');
         return CHARACTER_SYSTEM_TEMPLATE
             .replace('{jailbreak}', jailbreak)
             .replace('{name}', name)

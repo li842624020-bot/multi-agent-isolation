@@ -1,17 +1,8 @@
 /* Multi-Agent Isolation Plugin Styles */
 
-.mai-settings-container {
-    margin-bottom: 10px;
-}
-
-.mai-section {
-    margin: 10px 0;
-}
-
-.mai-section h4 {
-    margin: 8px 0 4px 0;
-    font-weight: 600;
-    font-size: 13px;
+/* === 扩展面板简化样式 === */
+.mai-extension-toggle {
+    padding: 8px 0;
 }
 
 .mai-hint {
@@ -22,29 +13,235 @@
     line-height: 1.4;
 }
 
-/* 角色标签列表 */
+/* === Modal 遮罩 === */
+.mai-modal-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+    backdrop-filter: blur(2px);
+}
+
+.mai-modal-overlay.active {
+    display: flex;
+}
+
+/* === Modal 主体 === */
+.mai-modal {
+    background: var(--SmartThemeBlurTintColor, #1a1a2e);
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15));
+    border-radius: 12px;
+    width: 90%;
+    max-width: 680px;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+}
+
+/* === Modal 头部 === */
+.mai-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1));
+    flex-shrink: 0;
+}
+
+.mai-modal-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--SmartThemeBodyColor, #eee);
+}
+
+.mai-modal-close {
+    cursor: pointer;
+    font-size: 20px;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.mai-modal-close:hover {
+    opacity: 1;
+    background: rgba(255,255,255,0.1);
+}
+
+/* === Tab 导航 === */
+.mai-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1));
+    padding: 0 20px;
+    flex-shrink: 0;
+    overflow-x: auto;
+}
+
+.mai-tab {
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--SmartThemeQuoteColor, #888);
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.mai-tab:hover {
+    color: var(--SmartThemeBodyColor, #eee);
+}
+
+.mai-tab.active {
+    color: var(--SmartThemeBodyColor, #eee);
+    border-bottom-color: var(--SmartThemeQuoteColor, #7b68ee);
+}
+
+/* === Tab 内容 === */
+.mai-modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.mai-tab-content {
+    display: none;
+}
+
+.mai-tab-content.active {
+    display: block;
+}
+
+/* === 通用表单 === */
+.mai-form-group {
+    margin-bottom: 16px;
+}
+
+.mai-form-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--SmartThemeBodyColor, #ccc);
+    margin-bottom: 6px;
+}
+
+.mai-form-group input,
+.mai-form-group textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15));
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--SmartThemeBodyColor, #eee);
+    font-size: 13px;
+    box-sizing: border-box;
+}
+
+.mai-form-group input:focus,
+.mai-form-group textarea:focus {
+    outline: none;
+    border-color: var(--SmartThemeQuoteColor, #7b68ee);
+}
+
+.mai-form-hint {
+    font-size: 11px;
+    color: var(--SmartThemeQuoteColor, #888);
+    margin-top: 4px;
+}
+
+/* === API 测试 === */
+.mai-api-test-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-top: 12px;
+}
+
+.mai-btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2));
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--SmartThemeBodyColor, #eee);
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.mai-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.mai-btn-primary {
+    background: rgba(123, 104, 238, 0.3);
+    border-color: rgba(123, 104, 238, 0.5);
+}
+
+.mai-btn-primary:hover {
+    background: rgba(123, 104, 238, 0.5);
+}
+
+.mai-btn-danger {
+    background: rgba(238, 104, 104, 0.2);
+    border-color: rgba(238, 104, 104, 0.4);
+}
+
+.mai-btn-danger:hover {
+    background: rgba(238, 104, 104, 0.4);
+}
+
+.mai-api-status {
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+.mai-api-status.success {
+    color: #7fff7f;
+    background: rgba(127, 255, 127, 0.1);
+}
+
+.mai-api-status.error {
+    color: #ff6b6b;
+    background: rgba(255, 107, 107, 0.1);
+}
+
+.mai-api-status.testing {
+    color: #ffd700;
+    background: rgba(255, 215, 0, 0.1);
+}
+
+/* === 角色标签列表 === */
 .mai-character-list {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
     margin: 8px 0;
-    min-height: 32px;
-    padding: 8px;
+    min-height: 36px;
+    padding: 10px;
     border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1));
     border-radius: 8px;
-    background: var(--SmartThemeBlurTintColor, rgba(0,0,0,0.1));
+    background: rgba(0, 0, 0, 0.15);
 }
 
 .mai-character-tag {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
+    gap: 6px;
+    padding: 5px 10px;
     border-radius: 6px;
-    background: var(--SmartThemeBodyColor, rgba(255,255,255,0.1));
+    background: rgba(255, 255, 255, 0.08);
     color: var(--SmartThemeBodyColor, #eee);
     font-size: 12px;
-    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.2));
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15));
 }
 
 .mai-character-name {
@@ -53,11 +250,10 @@
 
 .mai-character-remove {
     cursor: pointer;
-    opacity: 0.6;
+    opacity: 0.5;
     font-size: 14px;
     line-height: 1;
-    padding: 0 2px;
-    transition: opacity 0.2s;
+    transition: all 0.2s;
 }
 
 .mai-character-remove:hover {
@@ -69,41 +265,200 @@
     color: var(--SmartThemeQuoteColor, #888);
     font-size: 12px;
     font-style: italic;
-    padding: 4px;
 }
 
-/* 添加角色输入 */
 .mai-add-character {
     display: flex;
-    gap: 6px;
+    gap: 8px;
     align-items: center;
-    margin-top: 6px;
+    margin-top: 8px;
 }
 
 .mai-add-character input {
     flex: 1;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15));
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--SmartThemeBodyColor, #eee);
+    font-size: 13px;
 }
 
-/* 调试面板 */
-.mai-debug-panel {
-    max-height: 200px;
-    overflow-y: auto;
-    margin-top: 8px;
-    padding: 8px;
+/* === 多提示词管理 === */
+.mai-prompt-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 10px 0;
+}
+
+.mai-prompt-item {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+}
+
+.mai-prompt-item textarea {
+    flex: 1;
+    padding: 8px 12px;
     border-radius: 6px;
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.15));
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--SmartThemeBodyColor, #eee);
+    font-size: 12px;
+    resize: vertical;
+    min-height: 60px;
+}
+
+.mai-prompt-remove {
+    cursor: pointer;
+    padding: 8px;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+    font-size: 14px;
+}
+
+.mai-prompt-remove:hover {
+    opacity: 1;
+    color: #ff6b6b;
+}
+
+/* === 日志面板 === */
+.mai-log-panel {
+    max-height: 400px;
+    overflow-y: auto;
+    padding: 12px;
+    border-radius: 8px;
     background: rgba(0, 0, 0, 0.3);
-    font-family: monospace;
+    font-family: 'Courier New', monospace;
     font-size: 11px;
     border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1));
 }
 
-.mai-debug-line {
-    padding: 2px 0;
-    border-bottom: 1px solid rgba(255,255,255,0.05);
+.mai-log-line {
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
     color: var(--SmartThemeQuoteColor, #aaa);
     word-break: break-all;
+    line-height: 1.5;
 }
 
-.mai-debug-line:first-child {
+.mai-log-line.info {
+    color: #87ceeb;
+}
+
+.mai-log-line.success {
     color: #7fff7f;
+}
+
+.mai-log-line.error {
+    color: #ff6b6b;
+}
+
+.mai-log-line.warn {
+    color: #ffd700;
+}
+
+.mai-log-empty {
+    color: var(--SmartThemeQuoteColor, #666);
+    font-style: italic;
+    text-align: center;
+    padding: 20px;
+}
+
+.mai-log-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+
+/* === 主界面入口按钮 === */
+#mai_launch_btn {
+    cursor: pointer;
+    font-size: 18px;
+    transition: opacity 0.2s;
+    opacity: 0.7;
+}
+
+#mai_launch_btn:hover {
+    opacity: 1;
+}
+
+#mai_launch_btn.mai-active {
+    opacity: 1;
+    color: #7fff7f;
+}
+
+/* === 设置区块 === */
+.mai-section-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--SmartThemeBodyColor, #eee);
+    margin-bottom: 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.08));
+}
+
+.mai-checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 10px 0;
+}
+
+.mai-checkbox-group label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--SmartThemeBodyColor, #ccc);
+}
+
+/* === 响应式 === */
+@media (max-width: 768px) {
+    .mai-modal {
+        width: 95%;
+        max-height: 90vh;
+        border-radius: 8px;
+    }
+
+    .mai-modal-header {
+        padding: 12px 16px;
+    }
+
+    .mai-modal-body {
+        padding: 16px;
+    }
+
+    .mai-tabs {
+        padding: 0 12px;
+    }
+
+    .mai-tab {
+        padding: 8px 12px;
+        font-size: 12px;
+    }
+
+    .mai-api-test-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
+
+@media (max-width: 480px) {
+    .mai-modal {
+        width: 100%;
+        height: 100%;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+
+    .mai-modal-header {
+        padding: 10px 12px;
+    }
+
+    .mai-modal-body {
+        padding: 12px;
+    }
 }
