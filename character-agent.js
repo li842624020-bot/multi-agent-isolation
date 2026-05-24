@@ -70,11 +70,12 @@ export class CharacterAgent {
     async generateReactionsParallel(characterRequests, currentInput, sceneContext) {
         const promises = characterRequests.map(async (req) => {
             try {
+                const inputForChar = req.filteredInput || currentInput;
                 const reaction = await this.generateReaction(
                     req.name,
                     req.characterInfo,
                     req.visibleHistory,
-                    currentInput,
+                    inputForChar,
                     sceneContext,
                 );
                 return { name: req.name, reaction, success: true };

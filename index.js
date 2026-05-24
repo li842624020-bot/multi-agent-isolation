@@ -18,6 +18,8 @@ const defaultSettings = {
     enabled: false,
     autoDetectPresence: true,
     autoGenerateNPC: true,
+    autoUpdate: false,
+    updateInterval: 1,
     presentCharacters: [],
     allKnownCharacters: [],
     characterProfiles: {},
@@ -26,6 +28,7 @@ const defaultSettings = {
     agentApiKey: '',
     jailbreakPrompts: [''],
     injectionPosition: 'before_last',
+    messageCountSinceUpdate: 0,
 };
 
 let dispatcher = null;
@@ -33,6 +36,7 @@ let characterAgent = null;
 let historyManager = new HistoryManager();
 let directiveBuilder = new DirectiveBuilder();
 let logEntries = [];
+let analysisResults = [];
 
 // === 设置管理 ===
 
@@ -46,9 +50,11 @@ function loadSettings() {
         s.jailbreakPrompts = [s.agentJailbreakPrompt];
         delete s.agentJailbreakPrompt;
     }
-    if (!Array.isArray(s.jailbreakPrompts)) {
-        s.jailbreakPrompts = [''];
-    }
+    if (!Array.isArray(s.jailbreakPrompts)) s.jailbreakPrompts = [''];
+    if (!s.characterProfiles) s.characterProfiles = {};
+    if (s.autoUpdate === undefined) s.autoUpdate = false;
+    if (s.updateInterval === undefined) s.updateInterval = 1;
+    if (s.messageCountSinceUpdate === undefined) s.messageCountSinceUpdate = 0;
     initModules();
 }
 
@@ -80,13 +86,56 @@ function renderLogs() {
     const panel = document.getElementById('mai_log_panel');
     if (!panel) return;
     if (logEntries.length === 0) {
-        panel.innerHTML = '<div class="mai-log-empty">暂无日志，发送消息后将显示运行记录</div>';
+        panel.innerHTML = '<div class="mai-log-empty">暂无日志</div>';
         return;
     }
     panel.innerHTML = logEntries.map(e =>
         `<div class="mai-log-line ${e.level}">[${e.time}] ${e.message}</div>`
     ).join('');
 }
+
+// === 分析结果 ===
+
+function addAnalysisResult(characterName, result) {
+    const time = new Date().toLocaleTimeString();
+    const existing = analysisResults.findIndex(r => r.name === characterName);
+    const entry = { name: characterName, result, time };
+    if (existing >= 0) {
+        analysisResults[existing] = entry;
+    } else {
+        analysisResults.push(entry);
+    }
+    renderAnalysisResults();
+}
+
+function renderAnalysisResults() {
+    const container = document.getElementById('mai_analysis_results');
+    if (!container) return;
+    if (analysisResults.length === 0) {
+        container.innerHTML = '<div class="mai-empty-state">暂无分析结果</div>';
+        return;
+    }
+    container.innerHTML = analysisResults.map(r => `
+        <div class="mai-analysis-card">
+            <div class="mai-analysis-header">
+                <strong>${r.name}</strong>
+                <small>${r.time}</small>
+            </div>
+            <div class="mai-analysis-body">${formatAnalysisResult(r.result)}</div>
+        </div>
+    `).join('');
+}
+
+function formatAnalysisResult(result) {
+    if (typeof result === 'string') return result;
+    let html = '';
+    if (result.dialogue) html += `<div class="mai-ar-row"><b>对话:</b> "${result.dialogue}"</div>`;
+    if (result.action) html += `<div class="mai-ar-row"><b>动作:</b> ${result.action}</div>`;
+    if (result.expression) html += `<div class="mai-ar-row"><b>表情:</b> ${result.expression}</div>`;
+    if (result.thought) html += `<div class="mai-ar-row"><b>内心:</b> ${result.thought}</div>`;
+    return html || '<div class="mai-ar-row">无反应数据</div>';
+}
+
 
 // === Modal UI ===
 
@@ -103,6 +152,7 @@ function createModalHTML() {
                 <div class="mai-tab" data-tab="characters">角色</div>
                 <div class="mai-tab" data-tab="prompts">提示词</div>
                 <div class="mai-tab" data-tab="logs">日志</div>
+                <div class="mai-tab" data-tab="analysis">分析结果</div>
             </div>
             <div class="mai-modal-body">
                 <!-- 设置 Tab -->
@@ -131,6 +181,12 @@ function createModalHTML() {
                     <div class="mai-checkbox-group">
                         <label><input id="mai_m_auto_detect" type="checkbox" /> 自动识别角色出场/离场</label>
                         <label><input id="mai_m_auto_npc" type="checkbox" /> 自动生成临时NPC设定</label>
+                        <label><input id="mai_m_auto_update" type="checkbox" /> 开启自动增量更新</label>
+                    </div>
+                    <div class="mai-form-group" style="margin-top:8px;">
+                        <label>更新间隔（每N层AI回复更新一次）</label>
+                        <input id="mai_m_update_interval" type="number" min="1" max="99" value="1" style="width:80px;" />
+                        <div class="mai-form-hint">设为1表示每次AI回复后都增量更新角色信息</div>
                     </div>
                 </div>
 
@@ -141,7 +197,7 @@ function createModalHTML() {
                         <button class="mai-btn mai-btn-primary" id="mai_analyze_btn">分析当前对话</button>
                         <span id="mai_analyze_status"></span>
                     </div>
-                    <div class="mai-form-hint" style="margin-bottom:12px;">点击"分析当前对话"自动识别角色及其已知信息。也可手动添加角色。</div>
+                    <div class="mai-form-hint" style="margin-bottom:12px;">点击"分析当前对话"自动识别角色及其已知信息。适用于已有多轮对话的角色卡。</div>
                     <div id="mai_m_characters" class="mai-character-list">
                         <div class="mai-empty-state">暂无在场角色</div>
                     </div>
@@ -152,14 +208,14 @@ function createModalHTML() {
 
                     <div class="mai-section-title" style="margin-top:20px;">角色信息总览</div>
                     <div id="mai_character_profiles" class="mai-character-profiles">
-                        <div class="mai-empty-state">分析对话后将显示每个角色的已知信息摘要</div>
+                        <div class="mai-empty-state">分析对话后将显示每个角色的信息摘要</div>
                     </div>
                 </div>
 
                 <!-- 提示词 Tab -->
                 <div class="mai-tab-content" data-tab="prompts">
                     <div class="mai-section-title">角色Agent通用提示词</div>
-                    <div class="mai-form-hint" style="margin-bottom:12px;">每条提示词会拼接后添加到角色Agent的系统提示词开头（用于破限等）</div>
+                    <div class="mai-form-hint" style="margin-bottom:12px;">每条提示词会拼接后添加到角色Agent的系统提示词开头</div>
                     <div id="mai_m_prompts" class="mai-prompt-list"></div>
                     <button class="mai-btn" id="mai_m_add_prompt" style="margin-top:8px;">+ 添加提示词</button>
                 </div>
@@ -170,7 +226,16 @@ function createModalHTML() {
                         <button class="mai-btn mai-btn-danger" id="mai_clear_logs">清空日志</button>
                     </div>
                     <div id="mai_log_panel" class="mai-log-panel">
-                        <div class="mai-log-empty">暂无日志，发送消息后将显示运行记录</div>
+                        <div class="mai-log-empty">暂无日志</div>
+                    </div>
+                </div>
+
+                <!-- 分析结果 Tab -->
+                <div class="mai-tab-content" data-tab="analysis">
+                    <div class="mai-section-title">最新分析结果</div>
+                    <div class="mai-form-hint" style="margin-bottom:12px;">显示最近一次各角色Agent的生成结果（注入到最终AI的内容）</div>
+                    <div id="mai_analysis_results" class="mai-analysis-results">
+                        <div class="mai-empty-state">暂无分析结果</div>
                     </div>
                 </div>
             </div>
@@ -198,17 +263,22 @@ function syncModalFromSettings() {
     const model = document.getElementById('mai_m_model');
     const autoDetect = document.getElementById('mai_m_auto_detect');
     const autoNpc = document.getElementById('mai_m_auto_npc');
+    const autoUpdate = document.getElementById('mai_m_auto_update');
+    const updateInterval = document.getElementById('mai_m_update_interval');
 
     if (url) url.value = s.agentApiUrl || '';
     if (key) key.value = s.agentApiKey || '';
     if (model) model.value = s.agentModel || '';
     if (autoDetect) autoDetect.checked = s.autoDetectPresence;
     if (autoNpc) autoNpc.checked = s.autoGenerateNPC;
+    if (autoUpdate) autoUpdate.checked = s.autoUpdate;
+    if (updateInterval) updateInterval.value = s.updateInterval || 1;
 
     renderModalCharacters();
     renderModalPrompts();
     renderCharacterProfiles();
     renderLogs();
+    renderAnalysisResults();
 }
 
 function renderModalCharacters() {
@@ -218,7 +288,7 @@ function renderModalCharacters() {
     const chars = s.presentCharacters || [];
 
     if (chars.length === 0) {
-        container.innerHTML = '<div class="mai-empty-state">暂无在场角色，开始对话后自动识别</div>';
+        container.innerHTML = '<div class="mai-empty-state">暂无在场角色，点击"分析当前对话"或手动添加</div>';
         return;
     }
 
@@ -244,10 +314,44 @@ function renderModalPrompts() {
     `).join('');
 }
 
+function renderCharacterProfiles() {
+    const container = document.getElementById('mai_character_profiles');
+    if (!container) return;
+
+    const settings = getSettings();
+    const profiles = settings.characterProfiles || {};
+    const names = Object.keys(profiles);
+
+    if (names.length === 0) {
+        container.innerHTML = '<div class="mai-empty-state">分析对话后将显示每个角色的信息摘要</div>';
+        return;
+    }
+
+    container.innerHTML = names.map(name => {
+        const p = profiles[name];
+        const statusBadge = p.present
+            ? '<span class="mai-badge mai-badge-online">在场</span>'
+            : '<span class="mai-badge mai-badge-offline">离场</span>';
+        return `
+        <div class="mai-profile-card">
+            <div class="mai-profile-header">
+                <strong>${name}</strong> ${statusBadge}
+                <small class="mai-profile-time">${p.updated_at || ''}</small>
+            </div>
+            <div class="mai-profile-body">
+                <div class="mai-profile-row"><b>角色信息:</b> ${p.public_info || '无'}</div>
+                <div class="mai-profile-row"><b>私密信息:</b> ${p.private_info || '无'}</div>
+                <div class="mai-profile-row"><b>关系:</b> ${p.relationship || '无'}</div>
+                <div class="mai-profile-row"><b>最近状态:</b> ${p.last_action || '无'}</div>
+                <div class="mai-profile-row"><b>对话历史:</b> ${p.dialogue_history || '无'}</div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
 // === Modal 事件绑定 ===
 
 function bindModalEvents() {
-    // Tab 切换
     document.querySelectorAll('.mai-tab').forEach(tab => {
         tab.addEventListener('click', () => {
             document.querySelectorAll('.mai-tab').forEach(t => t.classList.remove('active'));
@@ -258,27 +362,23 @@ function bindModalEvents() {
         });
     });
 
-    // 关闭
     document.getElementById('mai_modal_close')?.addEventListener('click', closeModal);
     document.getElementById('mai_modal_overlay')?.addEventListener('click', (e) => {
         if (e.target.id === 'mai_modal_overlay') closeModal();
     });
 
-    // API 设置变更
+    // API 设置
     document.getElementById('mai_m_url')?.addEventListener('change', (e) => {
         getSettings().agentApiUrl = e.target.value;
-        saveSettings();
-        initModules();
+        saveSettings(); initModules();
     });
     document.getElementById('mai_m_key')?.addEventListener('change', (e) => {
         getSettings().agentApiKey = e.target.value;
-        saveSettings();
-        initModules();
+        saveSettings(); initModules();
     });
     document.getElementById('mai_m_model')?.addEventListener('change', (e) => {
         getSettings().agentModel = e.target.value;
-        saveSettings();
-        initModules();
+        saveSettings(); initModules();
     });
 
     // 自动化选项
@@ -288,6 +388,14 @@ function bindModalEvents() {
     });
     document.getElementById('mai_m_auto_npc')?.addEventListener('change', (e) => {
         getSettings().autoGenerateNPC = e.target.checked;
+        saveSettings();
+    });
+    document.getElementById('mai_m_auto_update')?.addEventListener('change', (e) => {
+        getSettings().autoUpdate = e.target.checked;
+        saveSettings();
+    });
+    document.getElementById('mai_m_update_interval')?.addEventListener('change', (e) => {
+        getSettings().updateInterval = Math.max(1, parseInt(e.target.value) || 1);
         saveSettings();
     });
 
@@ -306,10 +414,10 @@ function bindModalEvents() {
         if (e.target.classList.contains('mai-character-remove')) {
             const idx = parseInt(e.target.dataset.index);
             const s = getSettings();
-            s.presentCharacters.splice(idx, 1);
+            const removed = s.presentCharacters.splice(idx, 1);
             saveSettings();
             renderModalCharacters();
-            addLog(`移除角色: index=${idx}`, 'info');
+            addLog(`移除角色: ${removed[0]}`, 'info');
         }
     });
 
@@ -332,48 +440,34 @@ function bindModalEvents() {
 
 function bindPromptEvents() {
     document.querySelectorAll('.mai-prompt-item textarea').forEach(ta => {
-        ta.removeEventListener('change', onPromptChange);
-        ta.addEventListener('change', onPromptChange);
+        ta.onchange = (e) => {
+            const idx = parseInt(e.target.dataset.index);
+            getSettings().jailbreakPrompts[idx] = e.target.value;
+            saveSettings(); initModules();
+        };
     });
     document.querySelectorAll('.mai-prompt-remove').forEach(btn => {
-        btn.removeEventListener('click', onPromptRemove);
-        btn.addEventListener('click', onPromptRemove);
+        btn.onclick = (e) => {
+            const idx = parseInt(e.target.dataset.index);
+            const s = getSettings();
+            if (s.jailbreakPrompts.length <= 1) {
+                s.jailbreakPrompts = [''];
+            } else {
+                s.jailbreakPrompts.splice(idx, 1);
+            }
+            saveSettings(); renderModalPrompts(); bindPromptEvents(); initModules();
+        };
     });
-}
-
-function onPromptChange(e) {
-    const idx = parseInt(e.target.dataset.index);
-    const s = getSettings();
-    s.jailbreakPrompts[idx] = e.target.value;
-    saveSettings();
-    initModules();
-}
-
-function onPromptRemove(e) {
-    const idx = parseInt(e.target.dataset.index);
-    const s = getSettings();
-    if (s.jailbreakPrompts.length <= 1) {
-        s.jailbreakPrompts = [''];
-    } else {
-        s.jailbreakPrompts.splice(idx, 1);
-    }
-    saveSettings();
-    renderModalPrompts();
-    bindPromptEvents();
-    initModules();
 }
 
 function addCharacterFromModal() {
     const input = document.getElementById('mai_m_add_input');
     const name = input?.value.trim();
     if (!name) return;
-
     const s = getSettings();
     if (!s.presentCharacters.includes(name)) {
         s.presentCharacters.push(name);
-        if (!s.allKnownCharacters.includes(name)) {
-            s.allKnownCharacters.push(name);
-        }
+        if (!s.allKnownCharacters.includes(name)) s.allKnownCharacters.push(name);
         saveSettings();
         renderModalCharacters();
         addLog(`手动添加角色: ${name}`, 'info');
@@ -386,17 +480,14 @@ function addCharacterFromModal() {
 async function testApiConnection() {
     const statusEl = document.getElementById('mai_api_status');
     if (!statusEl) return;
-
     statusEl.className = 'mai-api-status testing';
     statusEl.textContent = '测试中...';
-
     try {
         const api = new APICaller(getSettings());
         const result = await api.call([
             { role: 'system', content: 'Reply with exactly: OK' },
             { role: 'user', content: 'Test' },
         ], { max_tokens: 10, temperature: 0 });
-
         statusEl.className = 'mai-api-status success';
         statusEl.textContent = `连接成功: "${result.slice(0, 20)}"`;
         addLog(`API 测试成功: ${result.slice(0, 30)}`, 'success');
@@ -407,78 +498,65 @@ async function testApiConnection() {
     }
 }
 
-// === 对话分析 ===
+// === 对话分析（全量） ===
 
 async function analyzeCurrentChat() {
     const statusEl = document.getElementById('mai_analyze_status');
-    if (statusEl) {
-        statusEl.className = 'mai-api-status testing';
-        statusEl.textContent = '分析中...';
-    }
-
-    addLog('开始分析当前对话...', 'info');
+    if (statusEl) { statusEl.className = 'mai-api-status testing'; statusEl.textContent = '分析中...'; }
+    addLog('开始全量分析当前对话...', 'info');
 
     try {
         const context = getContext();
         const chat = context.chat || [];
-
         if (chat.length === 0) {
-            if (statusEl) {
-                statusEl.className = 'mai-api-status error';
-                statusEl.textContent = '当前无对话内容';
-            }
+            if (statusEl) { statusEl.className = 'mai-api-status error'; statusEl.textContent = '当前无对话内容'; }
             addLog('分析失败：当前无对话内容', 'warn');
             return;
         }
 
-        // 提取最近的对话内容用于分析
-        const recentMessages = chat.slice(-30).map(msg => {
+        const recentMessages = chat.slice(-40).map(msg => {
             const role = msg.is_user ? '用户' : 'AI';
-            return `[${role}]: ${(msg.mes || '').slice(0, 300)}`;
+            return `[${role}]: ${(msg.mes || '').slice(0, 400)}`;
         }).join('\n');
 
-        // 获取角色卡信息
         let charCardInfo = '';
         if (context.characterId !== undefined && context.characters) {
             const char = context.characters[context.characterId];
-            if (char) {
-                charCardInfo = `当前角色卡: ${char.name}\n设定: ${(char.description || '').slice(0, 500)}`;
-            }
+            if (char) charCardInfo = `当前角色卡: ${char.name}\n设定: ${(char.description || '').slice(0, 600)}`;
         }
 
         const api = new APICaller(getSettings());
-        const analysisPrompt = `分析以下对话内容，识别所有出现的角色（不包括用户本人）。
+        const result = await api.callJSON([
+            { role: 'system', content: '你是对话分析助手，从RP对话中提取角色信息。只输出JSON。' },
+            { role: 'user', content: `分析以下对话，识别所有角色（不含用户本人）。
 
 ${charCardInfo}
 
-最近对话:
+对话内容:
 ${recentMessages}
 
-请输出JSON格式：
+输出JSON格式：
 {
   "characters": [
     {
       "name": "角色名",
-      "present": true/false,
-      "known_info": "该角色目前已知的信息摘要（其他角色不知道的秘密要标注）",
+      "present": true,
+      "public_info": "所有人都知道的公开信息",
+      "private_info": "只有该角色知道的秘密/私密信息",
       "relationship": "与其他角色的关系",
-      "last_action": "最近的行为/状态"
+      "last_action": "最近的行为/状态",
+      "dialogue_history": "该角色参与的对话摘要（按时间顺序，重点记录关键对话和事件）"
     }
   ]
 }
 
 规则：
-- 只识别对话中实际出现或被提及的角色
-- present=true 表示当前在场，false 表示已离场或只是被提及
-- known_info 要区分"公开信息"和"私密信息"
-- 只输出JSON`;
+- present=true表示当前在场
+- public_info是所有角色都能知道的
+- private_info是只有该角色自己知道的（其他角色不应获知）
+- dialogue_history是该角色参与过的对话的摘要总结` },
+        ], { temperature: 0.3, max_tokens: 2048 });
 
-        const result = await api.callJSON([
-            { role: 'system', content: '你是一个对话分析助手，负责从RP对话中提取角色信息。' },
-            { role: 'user', content: analysisPrompt },
-        ], { temperature: 0.3, max_tokens: 1024 });
-
-        // 更新设置
         const settings = getSettings();
         if (result.characters && Array.isArray(result.characters)) {
             settings.presentCharacters = [];
@@ -486,86 +564,108 @@ ${recentMessages}
 
             for (const char of result.characters) {
                 if (char.present) {
-                    if (!settings.presentCharacters.includes(char.name)) {
-                        settings.presentCharacters.push(char.name);
-                    }
+                    if (!settings.presentCharacters.includes(char.name)) settings.presentCharacters.push(char.name);
                 }
-                if (!settings.allKnownCharacters.includes(char.name)) {
-                    settings.allKnownCharacters.push(char.name);
-                }
+                if (!settings.allKnownCharacters.includes(char.name)) settings.allKnownCharacters.push(char.name);
                 settings.characterProfiles[char.name] = {
-                    known_info: char.known_info || '',
+                    public_info: char.public_info || '',
+                    private_info: char.private_info || '',
                     relationship: char.relationship || '',
                     last_action: char.last_action || '',
+                    dialogue_history: char.dialogue_history || '',
                     present: char.present,
                     updated_at: new Date().toLocaleString(),
                 };
             }
-
+            settings.messageCountSinceUpdate = 0;
             saveSettings();
             renderModalCharacters();
             renderCharacterProfiles();
-
-            if (statusEl) {
-                statusEl.className = 'mai-api-status success';
-                statusEl.textContent = `识别到 ${result.characters.length} 个角色`;
-            }
-            addLog(`分析完成: 识别到 ${result.characters.length} 个角色`, 'success');
+            if (statusEl) { statusEl.className = 'mai-api-status success'; statusEl.textContent = `识别到 ${result.characters.length} 个角色`; }
+            addLog(`全量分析完成: 识别到 ${result.characters.length} 个角色`, 'success');
         }
     } catch (err) {
-        if (statusEl) {
-            statusEl.className = 'mai-api-status error';
-            statusEl.textContent = `分析失败: ${err.message.slice(0, 40)}`;
-        }
+        if (statusEl) { statusEl.className = 'mai-api-status error'; statusEl.textContent = `失败: ${err.message.slice(0, 40)}`; }
         addLog(`对话分析失败: ${err.message}`, 'error');
     }
 }
 
-function renderCharacterProfiles() {
-    const container = document.getElementById('mai_character_profiles');
-    if (!container) return;
+// === 增量更新 ===
 
-    const settings = getSettings();
-    const profiles = settings.characterProfiles || {};
-    const names = Object.keys(profiles);
+async function incrementalUpdate(latestMessage) {
+    addLog('增量更新角色信息...', 'info');
+    try {
+        const settings = getSettings();
+        const profiles = settings.characterProfiles || {};
+        const names = Object.keys(profiles);
+        if (names.length === 0) return;
 
-    if (names.length === 0) {
-        container.innerHTML = '<div class="mai-empty-state">分析对话后将显示每个角色的已知信息摘要</div>';
-        return;
+        const api = new APICaller(settings);
+        const result = await api.callJSON([
+            { role: 'system', content: '你是对话分析助手。根据最新一条AI回复，增量更新各角色信息。只输出JSON。' },
+            { role: 'user', content: `当前角色信息：
+${JSON.stringify(profiles, null, 2)}
+
+最新AI回复内容：
+${latestMessage}
+
+请分析这条回复，输出更新后的角色信息JSON：
+{
+  "updates": [
+    {
+      "name": "角色名",
+      "public_info_append": "新增的公开信息（追加到已有信息后）",
+      "private_info_append": "新增的私密信息",
+      "last_action": "更新后的最近状态",
+      "dialogue_history_append": "本轮新增的对话摘要（一句话概括本轮发生了什么）",
+      "present": true
     }
+  ]
+}
 
-    container.innerHTML = names.map(name => {
-        const p = profiles[name];
-        const statusBadge = p.present
-            ? '<span class="mai-badge mai-badge-online">在场</span>'
-            : '<span class="mai-badge mai-badge-offline">离场</span>';
-        return `
-        <div class="mai-profile-card">
-            <div class="mai-profile-header">
-                <strong>${name}</strong> ${statusBadge}
-                <small class="mai-profile-time">${p.updated_at || ''}</small>
-            </div>
-            <div class="mai-profile-body">
-                <div class="mai-profile-row"><b>已知信息:</b> ${p.known_info || '无'}</div>
-                <div class="mai-profile-row"><b>关系:</b> ${p.relationship || '无'}</div>
-                <div class="mai-profile-row"><b>最近状态:</b> ${p.last_action || '无'}</div>
-            </div>
-        </div>`;
-    }).join('');
+规则：
+- 只输出有变化的角色
+- append字段是追加内容，不是替换
+- 如果某角色本轮没有新信息，不要输出该角色
+- dialogue_history_append 用简短一句话概括本轮该角色做了什么` },
+        ], { temperature: 0.3, max_tokens: 1024 });
+
+        if (result.updates && Array.isArray(result.updates)) {
+            for (const update of result.updates) {
+                const profile = profiles[update.name];
+                if (!profile) continue;
+                if (update.public_info_append) {
+                    profile.public_info = (profile.public_info || '') + '；' + update.public_info_append;
+                }
+                if (update.private_info_append) {
+                    profile.private_info = (profile.private_info || '') + '；' + update.private_info_append;
+                }
+                if (update.last_action) profile.last_action = update.last_action;
+                if (update.dialogue_history_append) {
+                    profile.dialogue_history = (profile.dialogue_history || '') + '；' + update.dialogue_history_append;
+                }
+                if (update.present !== undefined) profile.present = update.present;
+                profile.updated_at = new Date().toLocaleString();
+            }
+            saveSettings();
+            renderCharacterProfiles();
+            addLog(`增量更新完成: 更新了 ${result.updates.length} 个角色`, 'success');
+        }
+    } catch (err) {
+        addLog(`增量更新失败: ${err.message}`, 'error');
+    }
 }
 
 // === 核心流程：生成前拦截 ===
 
 async function onChatCompletionPromptReady(data) {
     const settings = getSettings();
-
     if (!settings.enabled) return;
     if (data.dryRun) return;
 
     addLog('=== 开始多Agent处理 ===', 'info');
 
     try {
-        // 自动从当前对话获取角色
         autoDetectCharacters(settings);
 
         const userInput = extractLastUserInput(data.chat);
@@ -576,13 +676,12 @@ async function onChatCompletionPromptReady(data) {
         addLog(`用户输入: ${userInput.slice(0, 50)}...`, 'info');
         addLog(`当前在场角色: [${settings.presentCharacters.join(', ')}]`, 'info');
 
-        // 如果仍然没有角色，跳过
         if (settings.presentCharacters.length === 0) {
-            addLog('未检测到角色，跳过（请在角色Tab中添加角色）', 'warn');
+            addLog('未检测到角色，跳过（请先分析对话或手动添加角色）', 'warn');
             return;
         }
 
-        addLog('调度器分析中...', 'info');
+        addLog('调度器分析中（含信息隔离分辨）...', 'info');
         const dispatchResult = await dispatcher.analyze(
             userInput,
             settings.presentCharacters,
@@ -591,6 +690,10 @@ async function onChatCompletionPromptReady(data) {
         addLog(`调度结果: 进入=[${dispatchResult.entered.join(',')}] 离开=[${dispatchResult.exited.join(',')}]`, 'info');
         addLog(`需要反应: [${dispatchResult.characters_to_react.join(', ')}]`, 'info');
 
+        if (dispatchResult.filtered_input?.private && Object.keys(dispatchResult.filtered_input.private).length > 0) {
+            addLog(`信息隔离: 检测到私密内容 → ${Object.keys(dispatchResult.filtered_input.private).join(', ')}`, 'info');
+        }
+
         updatePresence(dispatchResult, settings);
 
         if (dispatchResult.characters_to_react.length === 0) {
@@ -598,11 +701,15 @@ async function onChatCompletionPromptReady(data) {
             return;
         }
 
-        const characterRequests = dispatchResult.characters_to_react.map(name => ({
-            name,
-            characterInfo: getCharacterInfo(name),
-            visibleHistory: historyManager.getRecentHistoryForCharacter(name, data.chat, 20),
-        }));
+        const characterRequests = dispatchResult.characters_to_react.map(name => {
+            const filteredInput = dispatcher.getFilteredInputForCharacter(name, dispatchResult);
+            return {
+                name,
+                characterInfo: getCharacterInfo(name),
+                visibleHistory: historyManager.getRecentHistoryForCharacter(name, data.chat, 20),
+                filteredInput,
+            };
+        });
 
         addLog(`并行调用 ${characterRequests.length} 个角色Agent...`, 'info');
         const reactions = await characterAgent.generateReactionsParallel(
@@ -613,6 +720,11 @@ async function onChatCompletionPromptReady(data) {
 
         const successCount = reactions.filter(r => r.success).length;
         addLog(`角色Agent完成: ${successCount}/${reactions.length} 成功`, successCount > 0 ? 'success' : 'warn');
+
+        // 记录分析结果
+        for (const r of reactions) {
+            addAnalysisResult(r.name, r.reaction);
+        }
 
         const reactionData = reactions.map(r => r.reaction);
         const directive = directiveBuilder.build(reactionData);
@@ -631,7 +743,7 @@ async function onChatCompletionPromptReady(data) {
 
 // === 生成后处理 ===
 
-function onMessageReceived() {
+async function onMessageReceived() {
     const settings = getSettings();
     if (!settings.enabled) return;
 
@@ -639,6 +751,18 @@ function onMessageReceived() {
     if (context.chat && context.chat.length > 0) {
         const lastMsg = context.chat[context.chat.length - 1];
         historyManager.saveToMessage(lastMsg, settings.presentCharacters);
+
+        // 增量更新逻辑
+        if (settings.autoUpdate && !lastMsg.is_user) {
+            settings.messageCountSinceUpdate = (settings.messageCountSinceUpdate || 0) + 1;
+            if (settings.messageCountSinceUpdate >= (settings.updateInterval || 1)) {
+                settings.messageCountSinceUpdate = 0;
+                saveSettings();
+                await incrementalUpdate(lastMsg.mes || '');
+            } else {
+                saveSettings();
+            }
+        }
     }
     addLog(`回复已标记在场角色: [${settings.presentCharacters.join(', ')}]`, 'info');
 }
@@ -648,7 +772,6 @@ function onMessageReceived() {
 function autoDetectCharacters(settings) {
     try {
         const context = getContext();
-        // 群聊：获取群组中所有角色
         if (context.groupId && context.groups) {
             const group = context.groups.find(g => g.id === context.groupId);
             if (group && group.members) {
@@ -659,22 +782,16 @@ function autoDetectCharacters(settings) {
                         settings.presentCharacters.push(name);
                         addLog(`自动识别群聊角色: ${name}`, 'info');
                     }
-                    if (name && !settings.allKnownCharacters.includes(name)) {
-                        settings.allKnownCharacters.push(name);
-                    }
+                    if (name && !settings.allKnownCharacters.includes(name)) settings.allKnownCharacters.push(name);
                 }
             }
-        }
-        // 单聊：获取当前角色卡名称
-        else if (context.characterId !== undefined && context.characters) {
+        } else if (context.characterId !== undefined && context.characters) {
             const char = context.characters[context.characterId];
             if (char?.name && !settings.presentCharacters.includes(char.name)) {
                 settings.presentCharacters.push(char.name);
                 addLog(`自动识别角色: ${char.name}`, 'info');
             }
-            if (char?.name && !settings.allKnownCharacters.includes(char.name)) {
-                settings.allKnownCharacters.push(char.name);
-            }
+            if (char?.name && !settings.allKnownCharacters.includes(char.name)) settings.allKnownCharacters.push(char.name);
         }
     } catch (e) {
         addLog(`自动识别角色失败: ${e.message}`, 'warn');
@@ -683,21 +800,15 @@ function autoDetectCharacters(settings) {
 
 function extractLastUserInput(chat) {
     for (let i = chat.length - 1; i >= 0; i--) {
-        if (chat[i].role === 'user') {
-            return chat[i].content;
-        }
+        if (chat[i].role === 'user') return chat[i].content;
     }
     return null;
 }
 
 function updatePresence(dispatchResult, settings) {
     for (const name of dispatchResult.entered) {
-        if (!settings.presentCharacters.includes(name)) {
-            settings.presentCharacters.push(name);
-        }
-        if (!settings.allKnownCharacters.includes(name)) {
-            settings.allKnownCharacters.push(name);
-        }
+        if (!settings.presentCharacters.includes(name)) settings.presentCharacters.push(name);
+        if (!settings.allKnownCharacters.includes(name)) settings.allKnownCharacters.push(name);
     }
     for (const name of dispatchResult.exited) {
         const idx = settings.presentCharacters.indexOf(name);
@@ -708,23 +819,25 @@ function updatePresence(dispatchResult, settings) {
 }
 
 function getCharacterInfo(name) {
+    const settings = getSettings();
+    const profile = settings.characterProfiles?.[name];
+    if (profile) {
+        let info = `角色名：${name}`;
+        if (profile.public_info) info += `\n公开信息：${profile.public_info}`;
+        if (profile.private_info) info += `\n私密信息：${profile.private_info}`;
+        if (profile.relationship) info += `\n关系：${profile.relationship}`;
+        if (profile.dialogue_history) info += `\n对话历史：${profile.dialogue_history}`;
+        return info;
+    }
     try {
         const context = getContext();
-        // 优先使用 characterProfiles 中的摘要
-        const settings = getSettings();
-        if (settings.characterProfiles?.[name]) {
-            const profile = settings.characterProfiles[name];
-            return `角色名：${name}\n已知信息：${profile.known_info || '无'}\n关系：${profile.relationship || '无'}`;
-        }
         if (context.groups && context.groupId) {
             const char = context.characters?.find(c => c.name === name);
             if (char) return char.description || char.personality || `角色名：${name}`;
         }
         if (context.characterId !== undefined) {
             const char = context.characters?.[context.characterId];
-            if (char && char.name === name) {
-                return char.description || char.personality || `角色名：${name}`;
-            }
+            if (char && char.name === name) return char.description || char.personality || `角色名：${name}`;
         }
     } catch (e) {}
     return `角色名：${name}`;
@@ -736,18 +849,32 @@ jQuery(async () => {
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
     $('#extensions_settings2').append(settingsHtml);
 
-    // 注入 Modal HTML
+    // 浮动图标入口
+    const launchBtn = $(`
+        <div id="mai_launch_btn" class="fa-solid fa-users-gear interactable" title="Multi-Agent 信息隔离"></div>
+    `);
+    const targets = ['#leftSendForm', '#send_but_sheld', '#form_sheld .range-block'];
+    let placed = false;
+    for (const sel of targets) {
+        const t = $(sel);
+        if (t.length) { t.prepend(launchBtn); placed = true; break; }
+    }
+    if (!placed) $('body').append(launchBtn);
+
+    // 注入 Modal
     $('body').append(createModalHTML());
 
-    // 绑定扩展面板事件
+    // 扩展面板事件
     $('#mai_enabled').on('change', (e) => {
         const settings = getSettings();
         settings.enabled = Boolean($(e.target).prop('checked'));
         saveSettings();
+        document.getElementById('mai_launch_btn')?.classList.toggle('mai-active', settings.enabled);
         addLog(`插件${settings.enabled ? '已启用' : '已禁用'}`, 'info');
     });
 
     $('#mai_open_panel_btn').on('click', openModal);
+    $('#mai_launch_btn').on('click', openModal);
     bindModalEvents();
 
     // 注册核心事件
@@ -765,5 +892,6 @@ jQuery(async () => {
 
     loadSettings();
     $('#mai_enabled').prop('checked', getSettings().enabled);
-    console.log('[Multi-Agent Isolation] v0.4.0 loaded');
+    document.getElementById('mai_launch_btn')?.classList.toggle('mai-active', getSettings().enabled);
+    console.log('[Multi-Agent Isolation] v0.5.0 loaded');
 });

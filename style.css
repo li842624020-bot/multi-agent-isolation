@@ -444,6 +444,53 @@
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+/* === 分析结果面板 === */
+.mai-analysis-results {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.mai-analysis-card {
+    border: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.1));
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+}
+
+.mai-analysis-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: rgba(123, 104, 238, 0.08);
+    border-bottom: 1px solid var(--SmartThemeBorderColor, rgba(255,255,255,0.05));
+}
+
+.mai-analysis-header strong {
+    font-size: 13px;
+}
+
+.mai-analysis-header small {
+    font-size: 10px;
+    color: var(--SmartThemeQuoteColor, #888);
+}
+
+.mai-analysis-body {
+    padding: 10px 12px;
+}
+
+.mai-ar-row {
+    font-size: 12px;
+    color: var(--SmartThemeBodyColor, #ccc);
+    margin-bottom: 4px;
+    line-height: 1.5;
+}
+
+.mai-ar-row b {
+    color: var(--SmartThemeQuoteColor, #aaa);
+}
+
 /* === 主界面入口按钮 === */
 #mai_launch_btn {
     cursor: pointer;
