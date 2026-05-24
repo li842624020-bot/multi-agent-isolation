@@ -375,9 +375,13 @@
 /* === 主界面入口按钮 === */
 #mai_launch_btn {
     cursor: pointer;
-    font-size: 18px;
-    transition: opacity 0.2s;
+    font-size: 16px;
+    transition: opacity 0.2s, color 0.2s;
     opacity: 0.7;
+    padding: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 #mai_launch_btn:hover {

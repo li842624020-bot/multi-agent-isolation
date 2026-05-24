@@ -404,12 +404,22 @@ async function onChatCompletionPromptReady(data) {
     addLog('=== 开始多Agent处理 ===', 'info');
 
     try {
+        // 自动从当前对话获取角色
+        autoDetectCharacters(settings);
+
         const userInput = extractLastUserInput(data.chat);
         if (!userInput) {
             addLog('未找到用户输入，跳过', 'warn');
             return;
         }
         addLog(`用户输入: ${userInput.slice(0, 50)}...`, 'info');
+        addLog(`当前在场角色: [${settings.presentCharacters.join(', ')}]`, 'info');
+
+        // 如果仍然没有角色，跳过
+        if (settings.presentCharacters.length === 0) {
+            addLog('未检测到角色，跳过（请在角色Tab中添加角色）', 'warn');
+            return;
+        }
 
         addLog('调度器分析中...', 'info');
         const dispatchResult = await dispatcher.analyze(
@@ -423,7 +433,7 @@ async function onChatCompletionPromptReady(data) {
         updatePresence(dispatchResult, settings);
 
         if (dispatchResult.characters_to_react.length === 0) {
-            addLog('无角色需要反应，跳过', 'warn');
+            addLog('调度器判断无角色需要反应，跳过', 'warn');
             return;
         }
 
@@ -448,8 +458,8 @@ async function onChatCompletionPromptReady(data) {
 
         if (directive) {
             directiveBuilder.inject(data.chat, directive, settings.injectionPosition);
-            addLog('行为指令已注入', 'success');
-            addLog(`指令预览: ${directive.slice(0, 80)}...`, 'info');
+            addLog('行为指令已注入到messages', 'success');
+            addLog(`注入内容: ${directive.slice(0, 120)}...`, 'info');
         }
 
     } catch (error) {
@@ -473,6 +483,42 @@ function onMessageReceived() {
 }
 
 // === 辅助函数 ===
+
+function autoDetectCharacters(settings) {
+    try {
+        const context = getContext();
+        // 群聊：获取群组中所有角色
+        if (context.groupId && context.groups) {
+            const group = context.groups.find(g => g.id === context.groupId);
+            if (group && group.members) {
+                for (const memberId of group.members) {
+                    const char = context.characters?.find(c => c.avatar === memberId || c.name === memberId);
+                    const name = char?.name || memberId;
+                    if (name && !settings.presentCharacters.includes(name)) {
+                        settings.presentCharacters.push(name);
+                        addLog(`自动识别群聊角色: ${name}`, 'info');
+                    }
+                    if (name && !settings.allKnownCharacters.includes(name)) {
+                        settings.allKnownCharacters.push(name);
+                    }
+                }
+            }
+        }
+        // 单聊：获取当前角色卡名称
+        else if (context.characterId !== undefined && context.characters) {
+            const char = context.characters[context.characterId];
+            if (char?.name && !settings.presentCharacters.includes(char.name)) {
+                settings.presentCharacters.push(char.name);
+                addLog(`自动识别角色: ${char.name}`, 'info');
+            }
+            if (char?.name && !settings.allKnownCharacters.includes(char.name)) {
+                settings.allKnownCharacters.push(char.name);
+            }
+        }
+    } catch (e) {
+        addLog(`自动识别角色失败: ${e.message}`, 'warn');
+    }
+}
 
 function extractLastUserInput(chat) {
     for (let i = chat.length - 1; i >= 0; i--) {
@@ -530,16 +576,28 @@ jQuery(async () => {
     const settingsHtml = await $.get(`${extensionFolderPath}/settings.html`);
     $('#extensions_settings2').append(settingsHtml);
 
-    // 添加主界面入口图标
+    // 添加主界面入口图标（放在发送按钮区域旁边）
     const launchBtn = $(`
-        <div id="mai_launch_btn" class="fa-solid fa-users-gear" title="Multi-Agent 信息隔离"></div>
+        <div id="mai_launch_btn" class="fa-solid fa-users-gear interactable" title="Multi-Agent 信息隔离"></div>
     `);
-    $('#extensionsMenu, #top-settings-holder, #form_sheld .range-block-counter').first()
-        .before(launchBtn);
 
-    // 如果上面没找到合适位置，尝试其他位置
-    if (!document.getElementById('mai_launch_btn')) {
-        $('#send_but_sheld').prepend(launchBtn);
+    // 优先放在发送栏左侧按钮区
+    const targetSelectors = [
+        '#leftSendForm',
+        '#send_but_sheld',
+        '#form_sheld .range-block',
+    ];
+    let placed = false;
+    for (const sel of targetSelectors) {
+        const target = $(sel);
+        if (target.length) {
+            target.prepend(launchBtn);
+            placed = true;
+            break;
+        }
+    }
+    if (!placed) {
+        $('body').append(launchBtn);
     }
 
     // 注入 Modal HTML
